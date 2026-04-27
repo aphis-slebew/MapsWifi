@@ -1,0 +1,213 @@
+/* Import Font */
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+    font-family: 'Poppins', sans-serif;
+}
+
+body {
+    /* Gradien modern bernuansa biru/teknologi */
+    background: linear-gradient(135deg, #0f172a 0%, #1e3a8a 100%);
+    min-height: 100vh;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    position: relative;
+    overflow: hidden;
+}
+
+/* --- ORNAMEN BACKGROUND KEREN (BLOBS) --- */
+.blob {
+    position: absolute;
+    filter: blur(80px);
+    z-index: 1;
+    opacity: 0.6;
+}
+
+.blob-1 {
+    width: 300px;
+    height: 300px;
+    background: #3b82f6; /* Biru terang */
+    border-radius: 50%;
+    top: -50px;
+    left: -50px;
+    animation: float 6s ease-in-out infinite;
+}
+
+.blob-2 {
+    width: 350px;
+    height: 350px;
+    background: #0ea5e9; /* Cyan */
+    border-radius: 50%;
+    bottom: -100px;
+    right: -50px;
+    animation: float 8s ease-in-out infinite reverse;
+}
+
+@keyframes float {
+    0% { transform: translateY(0px) scale(1); }
+    50% { transform: translateY(20px) scale(1.05); }
+    100% { transform: translateY(0px) scale(1); }
+}
+
+/* --- LOGIN WRAPPER & CARD --- */
+.login-wrapper {
+    position: relative;
+    z-index: 10;
+    width: 100%;
+    max-width: 420px;
+    padding: 20px;
+}
+
+.login-card {
+    /* Efek Glassmorphism */
+    background: rgba(255, 255, 255, 0.95);
+    backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 24px;
+    padding: 40px 30px;
+    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+    text-align: center;
+}
+
+/* --- LOGO --- */
+.brand-logo {
+    display: flex;
+    justify-content: center;
+    margin-bottom: 24px;
+}
+
+.icon-circle {
+    width: 80px;
+    height: 80px;
+    background: linear-gradient(135deg, #3b82f6, #2563eb);
+    border-radius: 20px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    box-shadow: 0 10px 20px rgba(37, 99, 235, 0.3);
+    transform: rotate(10deg);
+}
+
+.icon-circle i {
+    font-size: 40px;
+    color: #ffffff;
+    transform: rotate(-10deg);
+}
+
+/* --- TEXT --- */
+.login-header {
+    margin-bottom: 30px;
+}
+
+.login-header h2 {
+    color: #1e293b;
+    font-size: 24px;
+    font-weight: 700;
+    margin-bottom: 8px;
+}
+
+.login-header p {
+    color: #64748b;
+    font-size: 14px;
+    line-height: 1.5;
+}
+
+/* --- ERROR ALERT --- */
+.alert-danger {
+    background: #fef2f2;
+    color: #ef4444;
+    border: 1px solid #f87171;
+    padding: 12px;
+    border-radius: 12px;
+    font-size: 13px;
+    margin-bottom: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+}
+
+/* --- FORM INPUTS --- */
+.input-group {
+    position: relative;
+    margin-bottom: 20px;
+}
+
+.input-icon {
+    position: absolute;
+    left: 16px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: #94a3b8;
+    font-size: 20px;
+    transition: 0.3s;
+}
+
+.form-control {
+    width: 100%;
+    padding: 15px 15px 15px 48px;
+    background: #f8fafc;
+    border: 2px solid #e2e8f0;
+    border-radius: 14px;
+    font-size: 15px;
+    color: #0f172a;
+    outline: none;
+    transition: all 0.3s ease;
+}
+
+.form-control::placeholder {
+    color: #94a3b8;
+}
+
+/* Fokus state */
+.form-control:focus {
+    background: #ffffff;
+    border-color: #3b82f6;
+    box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.1);
+}
+
+.form-control:focus + .input-icon,
+.input-group:focus-within .input-icon {
+    color: #3b82f6;
+}
+
+/* --- BUTTON --- */
+.btn-login {
+    width: 100%;
+    padding: 16px;
+    background: linear-gradient(135deg, #3b82f6, #1d4ed8);
+    color: #ffffff;
+    border: none;
+    border-radius: 14px;
+    font-size: 16px;
+    font-weight: 600;
+    cursor: pointer;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 10px;
+    transition: all 0.3s ease;
+    box-shadow: 0 10px 20px rgba(37, 99, 235, 0.3);
+    margin-top: 10px;
+}
+
+.btn-login:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 15px 25px rgba(37, 99, 235, 0.4);
+}
+
+.btn-login:active {
+    transform: translateY(0);
+}
+
+/* --- FOOTER --- */
+.login-footer {
+    margin-top: 30px;
+}
+
+.login-footer p {
+    color: #94a3b8;
+    font-size: 12px;
+}

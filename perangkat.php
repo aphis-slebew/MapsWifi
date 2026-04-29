@@ -207,7 +207,7 @@ include 'partials/header.php';
                                         style="background: #eab308; color: white; padding: 6px 10px; border-radius: 6px; border: none; cursor: pointer;" title="Edit Data">
                                         <i class='bx bx-edit'></i>
                                     </button>
-                                    <a href="api/hapus_data.php?id=<?= $row['id'] ?>&tipe=perangkat" onclick="return confirm('Yakin hapus data permanen?')" title="Hapus Data" style="background: #ef4444; color: white; padding: 6px 10px; border-radius: 6px; text-decoration: none;">
+                                    <a href="api/hapus_perangkat.php?id=<?= $row['id'] ?>&tipe=perangkat" onclick="return confirm('Yakin hapus data permanen?')" title="Hapus Data" style="background: #ef4444; color: white; padding: 6px 10px; border-radius: 6px; text-decoration: none;">
                                         <i class='bx bx-trash'></i>
                                     </a>
                                 </div>

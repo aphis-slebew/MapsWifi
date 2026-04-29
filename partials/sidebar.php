@@ -21,6 +21,13 @@
                 <i class='bx bx-group'></i> Data Pelanggan
             </a>
         </li>
+        
+        <li>
+            <a href="wilayah.php" class="<?= basename($_SERVER['PHP_SELF']) == 'wilayah.php' ? 'active' : '' ?>">
+                <i class='bx bx-map'></i> Data Wilayah
+            </a>
+        </li>
+
         <li>
             <a href="perangkat.php" class="<?= basename($_SERVER['PHP_SELF']) == 'perangkat.php' ? 'active' : '' ?>">
                 <i class='bx bx-devices'></i> Perangkat & ODP

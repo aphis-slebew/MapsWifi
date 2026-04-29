@@ -3,20 +3,67 @@ session_start();
 if(!isset($_SESSION['login'])) { header("Location: login.php"); exit; }
 include 'config/koneksi.php';
 
-// Ambil status plotting
+// --- LOGIKA FILTER PENCARIAN & WILAYAH ---
+$search       = isset($_GET['search']) ? mysqli_real_escape_string($koneksi, $_GET['search']) : '';
+$tipe_data    = isset($_GET['tipe_data']) ? $_GET['tipe_data'] : 'semua';
+$id_kecamatan = isset($_GET['kecamatan']) ? mysqli_real_escape_string($koneksi, $_GET['kecamatan']) : '';
+$id_desa      = isset($_GET['desa']) ? mysqli_real_escape_string($koneksi, $_GET['desa']) : '';
+
+// 1. Filter Dasar Wilayah (berlaku untuk pelanggan & perangkat)
+$wilayah_sql = "";
+if ($id_kecamatan != '') {
+    $wilayah_sql .= " AND p.id_kecamatan = '$id_kecamatan' ";
+}
+if ($id_desa != '') {
+    $wilayah_sql .= " AND p.id_desa = '$id_desa' ";
+}
+
+// 2. Filter Spesifik Pelanggan (Cari Nama + PPPOE)
+$where_pelanggan = " WHERE p.lat IS NOT NULL AND p.lat != '' " . $wilayah_sql;
+if ($search != '') {
+    $where_pelanggan .= " AND (p.nama LIKE '%$search%' OR p.pppoe LIKE '%$search%') ";
+}
+
+// 3. Filter Spesifik Perangkat (Cari Nama SAJA - Menghindari Error pppoe)
+$where_perangkat = " WHERE p.lat IS NOT NULL AND p.lat != '' " . $wilayah_sql;
+if ($search != '') {
+    $where_perangkat .= " AND p.nama LIKE '%$search%' ";
+}
+
+// --- EKSEKUSI PENGAMBILAN DATA ---
+$list_pelanggan = [];
+$list_perangkat = [];
+
+// Ambil data pelanggan jika tipe 'semua' atau 'pelanggan'
+if ($tipe_data == 'semua' || $tipe_data == 'pelanggan') {
+    $q_pel = "SELECT p.*, k.nama_kecamatan, d.nama_desa FROM pelanggan p 
+              LEFT JOIN kecamatan k ON p.id_kecamatan = k.id_kecamatan 
+              LEFT JOIN desa d ON p.id_desa = d.id_desa $where_pelanggan";
+    $res_pel = mysqli_query($koneksi, $q_pel);
+    $list_pelanggan = mysqli_fetch_all($res_pel, MYSQLI_ASSOC);
+}
+
+// Ambil data perangkat jika tipe 'semua' atau 'perangkat'
+if ($tipe_data == 'semua' || $tipe_data == 'perangkat') {
+    $q_per = "SELECT p.*, k.nama_kecamatan, d.nama_desa FROM perangkat p 
+              LEFT JOIN kecamatan k ON p.id_kecamatan = k.id_kecamatan 
+              LEFT JOIN desa d ON p.id_desa = d.id_desa $where_perangkat";
+    $res_per = mysqli_query($koneksi, $q_per);
+    $list_perangkat = mysqli_fetch_all($res_per, MYSQLI_ASSOC);
+}
+
+$list_kecamatan = mysqli_fetch_all(mysqli_query($koneksi, "SELECT * FROM kecamatan"), MYSQLI_ASSOC);
+$list_kabel = mysqli_fetch_all(mysqli_query($koneksi, "SELECT * FROM jalur_kabel"), MYSQLI_ASSOC);
+
+// Ambil Nama Target Plotting (Jika ada)
 $id_target = $_GET['id_target'] ?? null;
 $tipe_target = $_GET['tipe'] ?? 'pelanggan';
 $nama_target = "";
-
 if($id_target) {
     $tabel = ($tipe_target == 'perangkat') ? 'perangkat' : 'pelanggan';
     $cek = mysqli_query($koneksi, "SELECT nama FROM $tabel WHERE id='$id_target'");
     if($data = mysqli_fetch_assoc($cek)) $nama_target = $data['nama'];
 }
-
-$list_pelanggan = mysqli_fetch_all(mysqli_query($koneksi, "SELECT * FROM pelanggan WHERE lat IS NOT NULL"), MYSQLI_ASSOC);
-$list_perangkat = mysqli_fetch_all(mysqli_query($koneksi, "SELECT * FROM perangkat WHERE lat IS NOT NULL"), MYSQLI_ASSOC);
-$list_kabel = mysqli_fetch_all(mysqli_query($koneksi, "SELECT * FROM jalur_kabel"), MYSQLI_ASSOC);
 
 include 'partials/header.php';
 ?>
@@ -28,266 +75,246 @@ include 'partials/header.php';
 <style>
     .main-map-content { flex: 1; position: relative; padding: 0 !important; overflow: hidden; }
     #map { width: 100%; height: 100vh; z-index: 1; }
-    [data-theme="dark"] .leaflet-layer { filter: invert(100%) hue-rotate(180deg) brightness(95%) contrast(90%); }
-    .floating-ui { position: absolute; z-index: 1000; }
-    .search-bar-container { top: 15px; left: 60px; display: flex; gap: 10px; }
-    .search-box { background: var(--card-bg); padding: 10px 15px; border-radius: 8px; display: flex; align-items: center; gap: 10px; border: 1px solid var(--border-color); box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
-    .search-box input { border: none; background: transparent; outline: none; color: var(--text-main); width: 220px; font-size: 14px; }
-    .btn-circle { width: 45px; height: 45px; border-radius: 50%; background: var(--card-bg); border: 1px solid var(--border-color); color: var(--text-main); display: flex; align-items:center; justify-content:center; cursor:pointer; font-size: 20px; box-shadow: 0 4px 10px rgba(0,0,0,0.15); transition: 0.2s; }
-    .btn-circle:hover { filter: brightness(0.9); transform: scale(1.05); }
-    .btn-theme { border-radius: 8px !important; }
+    .floating-ui { position: absolute; z-index: 9999; }
     
-    /* CSS Pin Peta */
+    /* Bar Filter Atas */
+    .filter-container { top: 20px; left: 50%; transform: translateX(-50%); width: auto; max-width: 95%; }
+    .filter-bar { 
+        background: var(--card-bg); padding: 10px 15px; border-radius: 12px; 
+        display: flex; gap: 8px; border: 1px solid var(--border-color); 
+        box-shadow: 0 4px 15px rgba(0,0,0,0.15); align-items: center; 
+    }
+    .filter-bar input, .filter-bar select { 
+        border: 1px solid var(--border-color); border-radius: 6px; 
+        padding: 8px 12px; background: var(--body-bg); color: var(--text-main); font-size: 13px; 
+    }
+
+    /* 3 Tombol Utama Kiri Bawah */
+    .action-buttons { bottom: 30px; left: 80px; display: flex; flex-direction: column; gap: 12px; }
+    .btn-action {
+        display: flex; align-items: center; gap: 12px; background: var(--card-bg); 
+        border: 1px solid var(--border-color); color: var(--text-main); 
+        padding: 12px 18px; border-radius: 10px; cursor: pointer; 
+        box-shadow: 0 4px 12px rgba(0,0,0,0.1); font-size: 14px; font-weight: bold; transition: 0.2s;
+    }
+    .btn-action:hover { background: var(--hover-bg); transform: translateX(5px); }
+    .btn-draw { background: var(--primary-color); color: white; border: none; }
+
+    /* Marker Styling */
     .marker-pin { display: flex; justify-content: center; align-items: center; width: 32px; height: 32px; border-radius: 50% 50% 50% 0; transform: rotate(-45deg); border: 2px solid white; box-shadow: 0 4px 8px rgba(0,0,0,0.3); }
     .marker-pin i { transform: rotate(45deg); color: white; font-size: 16px; }
     .bg-server { background: #ef4444; } .bg-odp { background: #3b82f6; } .bg-splitter { background: #eab308; } .bg-htb { background: #f97316; } .bg-pelanggan { background: #22c55e; }
     
-    /* Modifikasi Pop-up Leaflet agar support Dark Mode */
-    .leaflet-popup-content-wrapper { background: var(--card-bg); color: var(--text-main); border-radius: 12px; border: 1px solid var(--border-color); box-shadow: 0 10px 20px rgba(0,0,0,0.15); }
-    .leaflet-popup-tip { background: var(--card-bg); }
-    .leaflet-popup-close-button { color: var(--text-muted) !important; margin-top: 5px; margin-right: 5px; }
+    /* Modal Input */
+    .modal-overlay { display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.6); z-index:10001; justify-content:center; align-items:center; }
+    .modal-content { background:var(--card-bg); padding:25px; border-radius:12px; width:90%; max-width: 400px; color:var(--text-main); }
+    .form-group { margin-bottom: 15px; }
+    .form-group label { display: block; margin-bottom: 5px; font-size: 12px; font-weight: bold; color: var(--text-muted); }
+    .form-group input, .form-group select, .form-group textarea { width: 100%; padding: 10px; border: 1px solid var(--border-color); border-radius: 8px; background: var(--body-bg); color: var(--text-main); }
 </style>
 
 <div class="app-container">
     <?php include 'partials/sidebar.php'; ?>
     <main class="main-map-content">
         
-        <div class="floating-ui search-bar-container">
-            <div class="search-box">
-                <i class='bx bx-search' style="color: var(--text-muted); font-size: 20px;"></i>
-                <input type="text" placeholder="Cari Pelanggan / Alat...">
-            </div>
-        </div>
+        <div class="floating-ui filter-container">
+            <form action="" method="GET" class="filter-bar">
+                <input type="text" name="search" placeholder="Cari Nama / PPPOE..." value="<?= $search ?>">
+                
+                <select name="tipe_data">
+                    <option value="semua" <?= $tipe_data == 'semua' ? 'selected' : '' ?>>Semua Tipe</option>
+                    <option value="pelanggan" <?= $tipe_data == 'pelanggan' ? 'selected' : '' ?>>Pelanggan</option>
+                    <option value="perangkat" <?= $tipe_data == 'perangkat' ? 'selected' : '' ?>>Perangkat</option>
+                </select>
 
-        <div class="floating-ui" style="top: 90px; right: 10px;">
-            <button class="btn-circle btn-theme" onclick="toggleTheme()" id="themeBtn" title="Ganti Tema"><i class='bx bx-moon'></i></button>
+                <select name="kecamatan" id="filter_kecamatan">
+                    <option value="">Kecamatan</option>
+                    <?php foreach($list_kecamatan as $k): ?>
+                        <option value="<?= $k['id_kecamatan'] ?>" <?= $id_kecamatan == $k['id_kecamatan'] ? 'selected' : '' ?>><?= $k['nama_kecamatan'] ?></option>
+                    <?php endforeach; ?>
+                </select>
+
+                <select name="desa" id="filter_desa">
+                    <option value="">Desa</option>
+                    </select>
+
+                <button type="submit" style="background:var(--primary-color); color:white; border:none; padding:8px 15px; border-radius:6px; cursor:pointer;">
+                    <i class='bx bx-search'></i>
+                </button>
+            </form>
         </div>
 
         <?php if($id_target): ?>
-        <div class="floating-ui" style="top: 20px; left: 50%; transform: translateX(-50%); background: var(--primary-color); color: white; padding: 10px 25px; border-radius: 50px; box-shadow: 0 4px 15px rgba(0,0,0,0.2);">
-            <i class='bx bx-target-lock bx-tada'></i> Plotting: <strong><?= $nama_target ?></strong>
-            <button onclick="location.href='index.php'" style="background: white; color: var(--primary-color); border:none; padding:4px 12px; border-radius:20px; cursor:pointer; font-weight:bold; margin-left:10px;">Batal</button>
+        <div class="floating-ui" style="top: 85px; left: 50%; transform: translateX(-50%); background: #ef4444; color: white; padding: 12px 25px; border-radius: 8px; font-weight: bold; box-shadow: 0 4px 15px rgba(0,0,0,0.2);">
+            <i class='bx bx-target-lock bx-tada'></i> Klik Peta untuk Lokasi: <?= $nama_target ?>
+            <button onclick="location.href='index.php'" style="background:white; color:#ef4444; border:none; margin-left:15px; padding:5px 12px; border-radius:6px; cursor:pointer; font-weight:bold;">Batal</button>
         </div>
         <?php endif; ?>
 
+        <div id="drawStatus" class="floating-ui" style="display:none; top: 85px; left: 50%; transform: translateX(-50%); background: #f59e0b; color: white; padding: 12px 25px; border-radius: 8px; font-weight: bold; text-align:center;">
+            <i class='bx bx-edit-alt bx-flashing'></i> SEDANG MENGGAMBAR JALUR KABEL...<br>
+            <small>Tekan <b>'S'</b> di Keyboard untuk Simpan Jalur.</small>
+        </div>
+
         <div id="map"></div>
 
-        <div class="floating-ui" style="bottom: 30px; right: 20px; display: flex; flex-direction: column; gap: 15px;">
-            <button class="btn-circle" onclick="document.getElementById('modalPersiapanKabel').style.display='flex'" title="Tarik Kabel Jalur" style="background:#f59e0b; color:white; border:none;"><i class='bx bx-share-alt'></i></button>
-            <button class="btn-circle" onclick="location.href='perangkat.php'" title="Data Perangkat" style="background:#3b82f6; color:white; border:none;"><i class='bx bx-hdd'></i></button>
-            <button class="btn-circle" onclick="location.href='pelanggan.php'" title="Data Pelanggan" style="background:#22c55e; color:white; border:none;"><i class='bx bx-user-plus'></i></button>
+        <div class="floating-ui action-buttons">
+            <button type="button" class="btn-action" onclick="window.location.href='pelanggan.php'">
+                <i class='bx bx-user-pin' style="color: #22c55e; font-size: 22px;"></i> Plot Pelanggan Baru
+            </button>
+            <button type="button" class="btn-action" onclick="window.location.href='perangkat.php'">
+                <i class='bx bx-hdd' style="color: #3b82f6; font-size: 22px;"></i> Plot Perangkat Baru
+            </button>
+            <button type="button" class="btn-action btn-draw" onclick="document.getElementById('modalKabel').style.display='flex'">
+                <i class='bx bx-git-branch' style="font-size: 22px;"></i> Tarik Jalur Kabel
+            </button>
         </div>
     </main>
 </div>
 
-<div id="modalPersiapanKabel" class="modal-overlay">
-    <div class="modal-content" style="max-width: 400px; padding: 25px;">
-        <h3 style="margin-bottom: 20px; text-align: center;"><i class='bx bx-git-branch' style="color:var(--primary-color);"></i> Persiapan Tarik Kabel</h3>
-        <div class="input-group">
-            <label>Pilih Jenis / Ketebalan Kabel</label>
-            <select id="pilihanJenisKabel" style="padding: 12px;">
-                <option value="biasa">1. Garis Biasa (Normal, 3px)</option>
-                <option value="tebal">2. Garis Tebal (Backbone/Feeder, 6px)</option>
-                <option value="patah">3. Garis Patah-patah (Dropcore, 3px)</option>
+<div id="modalKabel" class="modal-overlay">
+    <div class="modal-content">
+        <h3 style="margin-bottom: 20px;"><i class='bx bx-git-branch'></i> Persiapan Jalur Kabel</h3>
+        <div class="form-group">
+            <label>Nama Jalur</label>
+            <input type="text" id="kab_nama" placeholder="Misal: Jalur Utama ke ODP-A">
+        </div>
+        <div class="form-group">
+            <label>Jenis Jalur</label>
+            <select id="kab_tipe">
+                <option value="biasa">Garis Biasa (Standard)</option>
+                <option value="tebal">Garis Tebal (Backbone)</option>
+                <option value="patah">Garis Putus-putus (Rencana)</option>
             </select>
         </div>
-        <div style="display: flex; gap: 10px; margin-top: 25px;">
-            <button onclick="document.getElementById('modalPersiapanKabel').style.display='none'" class="btn-primary" style="flex:1; background:var(--hover-bg); color:var(--text-main); border:1px solid var(--border-color);">Batal</button>
-            <button onclick="mulaiTarikKabel()" class="btn-primary" style="flex:1; background:var(--primary-color);">Mulai Tarik</button>
+        <div class="form-group">
+            <label>Warna Kabel</label>
+            <input type="color" id="kab_warna" value="#f59e0b" style="height: 45px; padding: 2px;">
         </div>
-    </div>
-</div>
-
-<div id="modalKabel" class="modal-overlay">
-    <div class="modal-content" style="max-width: 400px;">
-        <h3 style="margin-bottom: 20px;">Simpan Jalur Kabel</h3>
-        <form action="api/simpan_kabel.php" method="POST">
-            <input type="hidden" name="koordinat" id="inputKoordinat">
-            <input type="hidden" name="tipe_garis" id="inputTipeGaris"> 
-            <div class="input-group">
-                <label>Nama Jalur Kabel</label>
-                <input type="text" name="nama" placeholder="Contoh: Feeder ODP 1" required>
-            </div>
-            <div class="input-group" style="margin-bottom:20px;">
-                <label>Warna Garis</label>
-                <input type="color" name="warna" value="#3b82f6" style="width:100%; height:45px; border:none; cursor: pointer; background: transparent; padding: 0;">
-            </div>
-            
-            <div style="display: flex; gap: 10px;">
-                <button type="button" onclick="document.getElementById('modalKabel').style.display='none'" style="flex:1; background:var(--hover-bg); color:var(--text-main); border:1px solid var(--border-color); padding:10px; border-radius:8px; cursor:pointer; font-weight:bold;">Batal</button>
-                <button type="submit" name="simpan_kabel" style="flex:1; background:var(--success-color); color:white; border:none; padding:10px; border-radius:8px; cursor:pointer; font-weight:bold;">Simpan ke DB</button>
-            </div>
-        </form>
-    </div>
-</div>
-
-<div id="modalEditKabel" class="modal-overlay">
-    <div class="modal-content" style="max-width: 400px;">
-        <h3 style="margin-bottom: 20px;">Edit Data Kabel</h3>
-        <form action="api/edit_kabel.php" method="POST">
-            <input type="hidden" name="id" id="editKabelId">
-            <div class="input-group">
-                <label>Nama Jalur</label>
-                <input type="text" name="nama" id="editKabelNama" required>
-            </div>
-            <div class="input-group">
-                <label>Ubah Jenis Kabel</label>
-                <select name="tipe_garis" id="editKabelTipe">
-                    <option value="biasa">Garis Biasa</option>
-                    <option value="tebal">Garis Tebal</option>
-                    <option value="patah">Garis Patah-patah</option>
-                </select>
-            </div>
-            <div class="input-group" style="margin-bottom:20px;">
-                <label>Warna Garis</label>
-                <input type="color" name="warna" id="editKabelWarna" style="width:100%; height:45px; border:none; cursor:pointer; background:transparent; padding:0;">
-            </div>
-            <div style="display: flex; gap: 10px;">
-                <button type="button" onclick="document.getElementById('modalEditKabel').style.display='none'" style="flex:1; background:var(--hover-bg); color:var(--text-main); border:1px solid var(--border-color); padding:10px; border-radius:8px; cursor:pointer; font-weight:bold;">Batal</button>
-                <button type="submit" name="edit_kabel" style="flex:1; background:var(--primary-color); color:white; border:none; padding:10px; border-radius:8px; cursor:pointer; font-weight:bold;">Update Data</button>
-            </div>
-        </form>
+        <div class="form-group">
+            <label>Deskripsi / Catatan</label>
+            <textarea id="kab_desc" rows="3" placeholder="Keterangan tambahan..."></textarea>
+        </div>
+        <div style="display: flex; gap: 10px; margin-top: 20px;">
+            <button onclick="document.getElementById('modalKabel').style.display='none'" style="flex:1; background:#ccc; border:none; padding:12px; border-radius:8px; cursor:pointer; font-weight:bold;">Batal</button>
+            <button onclick="siapkanDrawing()" style="flex:1; background:var(--primary-color); color:white; border:none; padding:12px; border-radius:8px; cursor:pointer; font-weight:bold;">Mulai Gambar</button>
+        </div>
     </div>
 </div>
 
 <script>
-    // --- Inisialisasi Peta ---
+    // Inisialisasi Map
     const satelit = L.tileLayer('http://{s}.google.com/vt/lyrs=s,h&x={x}&y={y}&z={z}',{ maxZoom: 20, subdomains:['mt0','mt1','mt2','mt3'] });
-    const osm = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png');
     const map = L.map('map', { center: [-7.6469, 112.9078], zoom: 14, layers: [satelit], zoomControl: false });
-    
-    L.control.zoom({ position: 'bottomleft' }).addTo(map);
-    L.control.layers({ "Peta Jalan": osm, "Satelit": satelit }, null, {position: 'topleft'}).addTo(map);
+    L.control.zoom({ position: 'bottomright' }).addTo(map);
+
+    const layerKabel = L.layerGroup().addTo(map);
+    const layerPoint = L.layerGroup().addTo(map);
+    let allMarkersCoords = []; // Untuk Auto-Zoom
 
     function createIcon(color, icon) { return L.divIcon({ className: '', html: `<div class='marker-pin ${color}'><i class='bx ${icon}'></i></div>`, iconSize: [30, 42], iconAnchor: [15, 42] }); }
     const icons = { pelanggan: createIcon('bg-pelanggan', 'bx-home-wifi'), server: createIcon('bg-server', 'bx-server'), odp: createIcon('bg-odp', 'bx-hdd'), splitter: createIcon('bg-splitter', 'bx-git-branch'), htb: createIcon('bg-htb', 'bx-transfer') };
 
-    // ==========================================
-    // 1. RENDER DATA PERANGKAT (ALAT JARINGAN)
-    // ==========================================
-    const dataPerangkat = <?= json_encode($list_perangkat) ?>;
-    dataPerangkat.forEach(d => { 
-        // Logika Gambar Perangkat
-        let imgHtmlDev = d.foto 
-            ? `<img src="uploads/${d.foto}" style="width:100%; height:120px; object-fit:cover; border-radius:8px; margin-bottom:10px; border: 1px solid var(--border-color);">` 
-            : `<div style="width:100%; height:120px; background:var(--hover-bg); border-radius:8px; margin-bottom:10px; display:flex; flex-direction:column; align-items:center; justify-content:center; color:var(--text-muted); border: 1px solid var(--border-color);"><i class='bx bx-hdd' style='font-size:36px; margin-bottom:5px;'></i><span style="font-size:11px;">Belum ada foto</span></div>`;
-
-        let popupHtml = `
-            <div style="min-width: 170px; text-align: center;">
-                ${imgHtmlDev}
-                <b style="font-size:15px; color:var(--text-main); display:block;">${d.nama}</b>
-                <span style="font-size:11px; color:var(--text-muted); text-transform:uppercase; display:block; margin-bottom:10px;">Jenis: ${d.jenis}</span>
-                <hr style="margin: 0 0 10px 0; border:0; border-top: 1px solid var(--border-color);">
-                <a href="api/hapus_objek.php?id=${d.id}&tipe=perangkat" onclick="return confirm('Hapus perangkat ini dari peta? (Data di menu perangkat tetap aman)')" style="display:flex; align-items:center; justify-content:center; gap:5px; background:var(--danger-color); color:white; padding:8px; border-radius:6px; text-decoration:none; font-size:12px; font-weight:bold;">
-                    <i class='bx bx-map-pin' style="font-size:16px;"></i> Hapus dari Peta
-                </a>
-            </div>
-        `;
-        L.marker([d.lat, d.lng], {icon: icons[d.jenis] || icons.server}).addTo(map).bindPopup(popupHtml); 
+    // Render Data Pelanggan
+    const dataPel = <?= json_encode($list_pelanggan) ?>;
+    dataPel.forEach(p => { 
+        L.marker([p.lat, p.lng], {icon: icons.pelanggan}).addTo(layerPoint).bindPopup(`<b>${p.nama}</b><br>${p.pppoe}`); 
+        allMarkersCoords.push([p.lat, p.lng]);
     });
 
-    // ==========================================
-    // 2. RENDER DATA PELANGGAN
-    // ==========================================
-    const dataPelanggan = <?= json_encode($list_pelanggan) ?>;
-    dataPelanggan.forEach(p => { 
-        // Logika Gambar Pelanggan
-        let imgHtml = p.foto 
-            ? `<img src="uploads/${p.foto}" style="width:100%; height:130px; object-fit:cover; border-radius:8px; margin-bottom:10px; border: 1px solid var(--border-color);">` 
-            : `<div style="width:100%; height:130px; background:var(--hover-bg); border-radius:8px; margin-bottom:10px; display:flex; flex-direction:column; align-items:center; justify-content:center; color:var(--text-muted); border: 1px solid var(--border-color);"><i class='bx bx-image-alt' style='font-size:40px; margin-bottom:5px;'></i><span style="font-size:11px;">Belum ada foto</span></div>`;
-            
-        let popupContent = `
-            <div style="min-width: 180px;">
-                ${imgHtml}
-                <b style="font-size: 15px; color: var(--text-main); display:block; border-bottom: 1px solid var(--border-color); padding-bottom: 8px; margin-bottom: 8px;">${p.nama}</b>
-                <div style="display: flex; flex-direction: column; gap: 6px; margin-bottom: 10px;">
-                    <span style="color: var(--text-muted); display:flex; align-items:center; gap:6px; font-size:12px;">
-                        <i class='bx bxl-whatsapp' style="font-size:16px; color:#22c55e;"></i> 
-                        ${p.no_hp ? p.no_hp : '-'}
-                    </span>
-                    <span style="color: var(--text-muted); display:flex; align-items:flex-start; gap:6px; font-size:12px; line-height: 1.4;">
-                        <i class='bx bx-map' style="font-size:16px; color:#ef4444; margin-top:2px;"></i> 
-                        ${p.alamat}
-                    </span>
-                </div>
-                <a href="api/hapus_objek.php?id=${p.id}&tipe=pelanggan" onclick="return confirm('Hapus pelanggan ini dari peta? (Data di menu pelanggan tetap aman)')" style="display:flex; align-items:center; justify-content:center; gap:5px; background:var(--danger-color); color:white; padding:8px; border-radius:6px; text-decoration:none; font-size:12px; font-weight:bold;">
-                    <i class='bx bx-map-pin' style="font-size:16px;"></i> Hapus dari Peta
-                </a>
-            </div>
-        `;
-
-        L.marker([p.lat, p.lng], {icon: icons.pelanggan}).addTo(map).bindPopup(popupContent); 
+    // Render Data Perangkat
+    const dataDev = <?= json_encode($list_perangkat) ?>;
+    dataDev.forEach(d => { 
+        L.marker([d.lat, d.lng], {icon: icons[d.jenis] || icons.server}).addTo(layerPoint).bindPopup(`<b>${d.nama}</b><br>${d.jenis.toUpperCase()}`); 
+        allMarkersCoords.push([d.lat, d.lng]);
     });
 
-    // ==========================================
-    // 3. RENDER JALUR KABEL
-    // ==========================================
-    const dataKabel = <?= json_encode($list_kabel) ?>;
-    dataKabel.forEach(k => { 
-        let weight = (k.tipe_garis === 'tebal') ? 6 : 3;
-        let dash = (k.tipe_garis === 'patah' || k.tipe_garis === 'putus') ? '5, 10' : null;
-
-        L.polyline(JSON.parse(k.koordinat), {color: k.warna, weight: weight, dashArray: dash}).addTo(map).bindPopup(`
-            <div style="min-width: 150px; text-align: center;">
-                <b style="font-size:15px; color:var(--text-main);">${k.nama}</b><br>
-                <span style="font-size:11px; color:var(--text-muted); text-transform:uppercase;">Tipe: ${k.tipe_garis}</span>
-                <hr style="margin: 10px 0; border:0; border-top: 1px solid var(--border-color);">
-                <div style="display: flex; gap: 5px; justify-content: center;">
-                    <button onclick="bukaEditKabel(${k.id}, '${k.nama}', '${k.tipe_garis}', '${k.warna}')" style="flex:1; background:var(--primary-color); color:white; border:none; padding:6px; border-radius:6px; cursor:pointer; font-size:12px;"><i class='bx bx-edit'></i> Edit</button>
-                    <a href="api/hapus_objek.php?id=${k.id}&tipe=kabel" onclick="return confirm('Hapus kabel ini secara permanen?')" style="flex:1; background:var(--danger-color); color:white; padding:6px; border-radius:6px; text-decoration:none; font-size:12px;"><i class='bx bx-trash'></i> Hapus</a>
-                </div>
-            </div>
-        `); 
+    // Render Jalur Kabel
+    const dataKab = <?= json_encode($list_kabel) ?>;
+    dataKab.forEach(k => { 
+        L.polyline(JSON.parse(k.koordinat), {
+            color: k.warna, 
+            weight: (k.tipe_garis === 'tebal' ? 6 : 3), 
+            dashArray: (k.tipe_garis === 'patah' ? '10,10' : null)
+        }).addTo(layerKabel).bindPopup(`<b>${k.nama}</b><br>${k.deskripsi}`); 
     });
 
-    // Fungsi Trigger Pop-up Edit Kabel
-    function bukaEditKabel(id, nama, tipe, warna) {
-        document.getElementById('editKabelId').value = id;
-        document.getElementById('editKabelNama').value = nama;
-        document.getElementById('editKabelTipe').value = tipe;
-        document.getElementById('editKabelWarna').value = warna;
-        document.getElementById('modalEditKabel').style.display = 'flex';
+    // --- LOGIKA AUTO ZOOM ---
+    // Jika ada pencarian atau filter wilayah, otomatis arahkan peta ke lokasi tersebut
+    <?php if($search != '' || $id_kecamatan != '' || $id_desa != ''): ?>
+    if (allMarkersCoords.length > 0) {
+        let bounds = L.latLngBounds(allMarkersCoords);
+        map.fitBounds(bounds, { padding: [50, 50], maxZoom: 18 });
+    }
+    <?php endif; ?>
+
+    // --- LOGIKA DRAWING KABEL ---
+    let isDrawing = false; let path = []; let tempLine = null; let configKabel = {};
+
+    function siapkanDrawing() {
+        configKabel = {
+            nama: document.getElementById('kab_nama').value,
+            tipe: document.getElementById('kab_tipe').value,
+            warna: document.getElementById('kab_warna').value,
+            deskripsi: document.getElementById('kab_desc').value
+        };
+        if(!configKabel.nama) return alert("Isi Nama Jalur terlebih dahulu!");
+
+        document.getElementById('modalKabel').style.display = 'none';
+        document.getElementById('drawStatus').style.display = 'block';
+        isDrawing = true; path = [];
+        
+        let weight = (configKabel.tipe === 'tebal') ? 6 : 3;
+        let dash = (configKabel.tipe === 'patah') ? '10, 10' : null;
+        tempLine = L.polyline([], {color: configKabel.warna, weight: weight, dashArray: dash}).addTo(map);
     }
 
-    // --- Logika Plotting Titik Pelanggan ---
     map.on('click', function(e) {
-        <?php if($id_target): ?>
-            if(confirm("Simpan lokasi pin di sini?")) window.location.href = `api/simpan_lokasi.php?id=<?= $id_target ?>&lat=${e.latlng.lat}&lng=${e.latlng.lng}&tipe=<?= $tipe_target ?>`;
-        <?php endif; ?>
-    });
-
-    // --- Logika Menarik Kabel ---
-    let isDrawing = false, path = [], tempLine = null, currentStyle = { weight: 3, dashArray: null, tipe: 'biasa' };
-    
-    function mulaiTarikKabel() { 
-        document.getElementById('modalPersiapanKabel').style.display = 'none';
-        
-        let jenis = document.getElementById('pilihanJenisKabel').value;
-        if(jenis === 'biasa') currentStyle = { weight: 3, dashArray: null, tipe: 'biasa' };
-        else if(jenis === 'tebal') currentStyle = { weight: 6, dashArray: null, tipe: 'tebal' };
-        else if(jenis === 'patah') currentStyle = { weight: 3, dashArray: '5, 10', tipe: 'patah' };
-
-        isDrawing = true; 
-        path = []; 
-        if(tempLine) map.removeLayer(tempLine);
-        
-        tempLine = L.polyline([], {color: '#f59e0b', weight: currentStyle.weight, dashArray: currentStyle.dashArray}).addTo(map);
-        
-        alert("Mode Tarik Kabel Diaktifkan!\nSilakan klik di peta untuk menggambar jalur.\n\nJika sudah selesai, tekan tombol 'S' di keyboard.");
-        
-        map.on('click', function(e) {
-            if(!isDrawing) return;
+        if(isDrawing) {
             path.push([e.latlng.lat, e.latlng.lng]);
             tempLine.setLatLngs(path);
-        });
-    }
+        } else {
+            <?php if($id_target): ?>
+            if(confirm("Simpan koordinat di sini untuk <?= $nama_target ?>?")) {
+                window.location.href = `api/simpan_lokasi.php?id=<?= $id_target ?>&lat=${e.latlng.lat}&lng=${e.latlng.lng}&tipe=<?= $tipe_target ?>`;
+            }
+            <?php endif; ?>
+        }
+    });
 
     window.addEventListener('keydown', (e) => {
         if((e.key === 's' || e.key === 'S') && isDrawing) {
-            isDrawing = false;
-            document.getElementById('inputKoordinat').value = JSON.stringify(path);
-            document.getElementById('inputTipeGaris').value = currentStyle.tipe;
-            document.getElementById('modalKabel').style.display = 'flex';
+            if(path.length < 2) return alert("Tambahkan minimal 2 titik!");
+            let formData = new FormData();
+            formData.append('nama', configKabel.nama);
+            formData.append('tipe_garis', configKabel.tipe);
+            formData.append('warna', configKabel.warna);
+            formData.append('deskripsi', configKabel.deskripsi);
+            formData.append('koordinat', JSON.stringify(path));
+            fetch('api/simpan_kabel.php', { method: 'POST', body: formData }).then(() => location.reload());
         }
     });
+
+    // --- AJAX LOAD DESA UNTUK FILTER ---
+    const filterKec = document.getElementById('filter_kecamatan');
+    const filterDesa = document.getElementById('filter_desa');
+
+    function loadDesa(idKec, idDesaSelected = '') {
+        if(!idKec) { filterDesa.innerHTML = '<option value="">Desa</option>'; return; }
+        let fd = new FormData();
+        fd.append('id_kecamatan', idKec);
+        fetch('api/get_desa.php', { method: 'POST', body: fd })
+        .then(res => res.text())
+        .then(html => {
+            filterDesa.innerHTML = '<option value="">Desa</option>' + html;
+            if(idDesaSelected) filterDesa.value = idDesaSelected;
+        });
+    }
+
+    filterKec.addEventListener('change', function() { loadDesa(this.value); });
+    
+    // Jalankan saat halaman pertama load jika filter sudah terpilih
+    <?php if($id_kecamatan != ''): ?>
+    loadDesa('<?= $id_kecamatan ?>', '<?= $id_desa ?>');
+    <?php endif; ?>
 </script>
